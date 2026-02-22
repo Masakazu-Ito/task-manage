@@ -2,6 +2,7 @@ import { RestAPI } from '../github/rest.js';
 import { GraphQLAPI } from '../github/graphql.js';
 import { gh } from '../github/client.js';
 import { getConfig } from '../config.js';
+import { getJSTToday } from '../jst.js';
 import { NotFoundError } from '../errors.js';
 import type {
   ParsedIssueTemplate,
@@ -17,16 +18,27 @@ import type {
 import { getItemFieldValue } from '../../types/project.js';
 import type { ProjectItem } from '../../types/project.js';
 
+function requireRepo(): void {
+  const config = getConfig();
+  if (!config.defaults.repo) {
+    throw new Error('リポジトリが設定されていません。.ghprc.json の defaults.repo を設定してください。');
+  }
+}
+
+function requireProjectNumber(): number {
+  const config = getConfig();
+  const projectNumber = config.defaults.project;
+  if (!projectNumber) {
+    throw new Error('プロジェクトが設定されていません。.ghprc.json の defaults.project を設定してください。');
+  }
+  return projectNumber;
+}
+
 export async function createIssueFromTemplate(
   template: ParsedIssueTemplate,
 ): Promise<SlackIssueCreationResult> {
+  requireRepo();
   const config = getConfig();
-
-  if (!config.defaults.repo) {
-    throw new Error(
-      'リポジトリが設定されていません。.ghprc.json の defaults.repo を設定するか、Git リポジトリ内で Bot を起動してください。',
-    );
-  }
 
   const rest = RestAPI.fromRepoString();
   const body = template.dueTime
@@ -118,12 +130,7 @@ export function formatSlackError(err: unknown): string {
 // --- 一覧コマンド ---
 
 export async function handleListCommand(dueBefore?: string): Promise<SlackListResult> {
-  const config = getConfig();
-  const projectNumber = config.defaults.project;
-
-  if (!projectNumber) {
-    throw new Error('プロジェクトが設定されていません。.ghprc.json の defaults.project を設定してください。');
-  }
+  const projectNumber = requireProjectNumber();
 
   const graphql = new GraphQLAPI();
   const filters = dueBefore ? { dueBefore } : undefined;
@@ -169,12 +176,7 @@ export function formatListResponse(result: SlackListResult): string {
 // --- ステータス変更コマンド ---
 
 export async function handleStatusCommand(issueNumber: number, status: string): Promise<SlackStatusResult> {
-  const config = getConfig();
-  const projectNumber = config.defaults.project;
-
-  if (!projectNumber) {
-    throw new Error('プロジェクトが設定されていません。.ghprc.json の defaults.project を設定してください。');
-  }
+  const projectNumber = requireProjectNumber();
 
   const graphql = new GraphQLAPI();
   const item = await graphql.findItemByIssueNumber(projectNumber, issueNumber);
@@ -195,11 +197,7 @@ export function formatStatusResponse(result: SlackStatusResult): string {
 // --- メモ追記コマンド ---
 
 export async function handleMemoCommand(issueNumber: number, content: string): Promise<SlackMemoResult> {
-  const config = getConfig();
-
-  if (!config.defaults.repo) {
-    throw new Error('リポジトリが設定されていません。.ghprc.json の defaults.repo を設定してください。');
-  }
+  requireRepo();
 
   const rest = RestAPI.fromRepoString();
   const issue = await rest.getIssue(issueNumber);
@@ -222,11 +220,8 @@ export function formatMemoResponse(result: SlackMemoResult): string {
 // --- 完了コマンド ---
 
 export async function handleCloseCommand(issueNumber: number, comment?: string): Promise<SlackCloseResult> {
+  requireRepo();
   const config = getConfig();
-
-  if (!config.defaults.repo) {
-    throw new Error('リポジトリが設定されていません。.ghprc.json の defaults.repo を設定してください。');
-  }
 
   let statusChanged = false;
   const projectNumber = config.defaults.project;
@@ -268,12 +263,7 @@ export function formatCloseResponse(result: SlackCloseResult): string {
 // --- 期日変更コマンド ---
 
 export async function handleDueDateCommand(issueNumber: number, dueDate: string): Promise<SlackDueDateResult> {
-  const config = getConfig();
-  const projectNumber = config.defaults.project;
-
-  if (!projectNumber) {
-    throw new Error('プロジェクトが設定されていません。.ghprc.json の defaults.project を設定してください。');
-  }
+  const projectNumber = requireProjectNumber();
 
   const graphql = new GraphQLAPI();
   const item = await graphql.findItemByIssueNumber(projectNumber, issueNumber);
@@ -305,11 +295,8 @@ export function formatDueDateResponse(result: SlackDueDateResult): string {
 // --- 検索コマンド ---
 
 export async function handleSearchCommand(query: string): Promise<SlackSearchResult> {
+  requireRepo();
   const config = getConfig();
-
-  if (!config.defaults.repo) {
-    throw new Error('リポジトリが設定されていません。.ghprc.json の defaults.repo を設定してください。');
-  }
 
   const searchQuery = `${query} repo:${config.defaults.repo} type:issue state:open`;
   const params = new URLSearchParams();
@@ -392,25 +379,13 @@ export function collectDashboardData(items: ProjectItem[], today: string): Slack
 }
 
 export async function handleDashboardCommand(): Promise<SlackDashboardResult> {
-  const config = getConfig();
-  const projectNumber = config.defaults.project;
-
-  if (!projectNumber) {
-    throw new Error('プロジェクトが設定されていません。.ghprc.json の defaults.project を設定してください。');
-  }
+  const projectNumber = requireProjectNumber();
 
   const graphql = new GraphQLAPI();
   const project = await graphql.getProject(projectNumber);
   const allItems = project.items.nodes;
 
-  // JST の今日の日付を算出
-  const JST_OFFSET = 9 * 60;
-  const now = new Date();
-  const jst = new Date(now.getTime() + JST_OFFSET * 60 * 1000);
-  const y = jst.getUTCFullYear();
-  const m = String(jst.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(jst.getUTCDate()).padStart(2, '0');
-  const today = `${y}-${m}-${d}`;
+  const today = getJSTToday();
 
   return collectDashboardData(allItems, today);
 }

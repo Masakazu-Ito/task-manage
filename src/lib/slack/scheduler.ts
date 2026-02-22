@@ -1,6 +1,7 @@
 import type { App } from '@slack/bolt';
 import { GraphQLAPI } from '../github/graphql.js';
 import { getConfig } from '../config.js';
+import { getJSTNow, getJSTToday, getJSTTomorrow } from '../jst.js';
 import { collectDashboardData } from './handler.js';
 import { getItemFieldValue } from '../../types/project.js';
 import type { ProjectItem } from '../../types/project.js';
@@ -8,29 +9,6 @@ import type { SlackDashboardResult } from '../../types/slack.js';
 
 const JST_OFFSET = 9 * 60; // UTC+9 in minutes
 const NOTIFY_HOURS = [9, 18]; // 9:00 and 18:00 JST
-
-function getJSTNow(): Date {
-  const now = new Date();
-  // Create a Date representing JST by adjusting UTC
-  return new Date(now.getTime() + JST_OFFSET * 60 * 1000);
-}
-
-function getJSTToday(): string {
-  const jst = getJSTNow();
-  const y = jst.getUTCFullYear();
-  const m = String(jst.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(jst.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function getJSTTomorrow(): string {
-  const jst = getJSTNow();
-  jst.setUTCDate(jst.getUTCDate() + 1);
-  const y = jst.getUTCFullYear();
-  const m = String(jst.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(jst.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
 
 export function getNextNotifyTime(): Date {
   const now = new Date();
