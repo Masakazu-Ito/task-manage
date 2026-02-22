@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   createIssueFromTemplate,
   formatSlackResponse,
-  formatSlackError,
   handleListCommand,
   handleStatusCommand,
   handleMemoCommand,
@@ -140,19 +139,6 @@ describe('formatSlackResponse', () => {
   });
 });
 
-describe('formatSlackError', () => {
-  it('formats an Error object', () => {
-    const output = formatSlackError(new Error('Something went wrong'));
-    expect(output).toContain('Issue作成に失敗しました');
-    expect(output).toContain('Something went wrong');
-    expect(output).toContain('gh auth status');
-  });
-
-  it('formats a string error', () => {
-    const output = formatSlackError('plain string error');
-    expect(output).toContain('plain string error');
-  });
-});
 
 // --- handleListCommand ---
 

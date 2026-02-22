@@ -123,11 +123,6 @@ export function formatSlackResponse(result: SlackIssueCreationResult): string {
   return lines.join('\n');
 }
 
-export function formatSlackError(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  return `\u274c Issue作成に失敗しました\n\`\`\`${message}\`\`\`\nヒント: \`gh auth status\` で認証状態を確認してください。`;
-}
-
 // --- 一覧コマンド ---
 
 export async function handleListCommand(dueBefore?: string): Promise<SlackListResult> {
