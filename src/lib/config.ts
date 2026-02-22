@@ -69,6 +69,7 @@ export function getConfig(): ResolvedConfig {
       output: config.defaults?.output || 'table',
       project: config.defaults?.project || null,
       projectOwner: config.defaults?.projectOwner || null,
+      assignee: config.defaults?.assignee || null,
     },
     rules: {
       enabled: userRules.enabled ?? DEFAULT_RULES_CONFIG.enabled,

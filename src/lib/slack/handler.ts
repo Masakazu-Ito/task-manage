@@ -46,7 +46,8 @@ export async function createIssueFromTemplate(
   const body = template.dueTime
     ? `期限: ${template.dueDate} ${template.dueTime} JST`
     : '';
-  const issue = await rest.createIssue({ title: template.title, body, assignees: ['Masakazu-Ito'] });
+  const assignees = config.defaults.assignee ? [config.defaults.assignee] : [];
+  const issue = await rest.createIssue({ title: template.title, body, assignees });
 
   const result: SlackIssueCreationResult = {
     issue: { number: issue.number, title: issue.title, html_url: issue.html_url },
