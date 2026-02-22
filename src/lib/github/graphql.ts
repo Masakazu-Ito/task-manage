@@ -1,14 +1,29 @@
 import { gh } from './client.js';
-import type { Project, ProjectField, ProjectItem, ProjectV2Response, ProjectV2ResponseRaw } from '../../types/project.js';
+import type {
+  Project,
+  ProjectField,
+  ProjectItem,
+  ProjectV2Response,
+  ProjectV2ResponseRaw,
+  CreateFieldInput,
+  DeleteFieldResult,
+  FieldValueInput,
+  ItemFilterOptions,
+  ItemSortOptions,
+} from '../../types/project.js';
+import { getDefaultOwner } from '../config.js';
 
 export class GraphQLAPI {
   private owner: string;
   private ownerType: 'user' | 'organization';
 
   constructor(owner?: string, ownerType?: 'user' | 'organization') {
-    if (owner) {
-      this.owner = owner;
-      this.ownerType = ownerType || 'user';
+    // Priority: CLI option > config default > git/user detection
+    const effectiveOwner = owner || getDefaultOwner();
+
+    if (effectiveOwner) {
+      this.owner = effectiveOwner;
+      this.ownerType = ownerType || 'organization';
     } else {
       const current = gh.getCurrentRepo();
       if (current) {
@@ -116,6 +131,10 @@ export class GraphQLAPI {
                     title
                     state
                     url
+                  }
+                  ... on DraftIssue {
+                    title
+                    body
                   }
                 }
                 fieldValues(first: 20) {
@@ -319,5 +338,382 @@ export class GraphQLAPI {
   async findItemByIssueNumber(projectNumber: number, issueNumber: number): Promise<ProjectItem | null> {
     const items = await this.getProjectItems(projectNumber);
     return items.find(item => item.content?.number === issueNumber) || null;
+  }
+
+  async createField(projectNumber: number, input: CreateFieldInput): Promise<ProjectField> {
+    const project = await this.getProject(projectNumber);
+
+    if (input.dataType === 'SINGLE_SELECT') {
+      const mutation = `
+        mutation($projectId: ID!, $name: String!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+          createProjectV2Field(input: {
+            projectId: $projectId
+            dataType: SINGLE_SELECT
+            name: $name
+            singleSelectOptions: $options
+          }) {
+            projectV2Field {
+              ... on ProjectV2SingleSelectField {
+                id
+                name
+                dataType
+                options {
+                  id
+                  name
+                  color
+                }
+              }
+            }
+          }
+        }
+      `;
+
+      const options = (input.singleSelectOptions || []).map(opt => ({
+        name: opt.name,
+        color: opt.color || 'GRAY',
+      }));
+
+      const result = await gh.graphql<{
+        createProjectV2Field: { projectV2Field: ProjectField };
+      }>(mutation, {
+        projectId: project.id,
+        name: input.name,
+        options,
+      });
+
+      return result.createProjectV2Field.projectV2Field;
+    } else {
+      const mutation = `
+        mutation($projectId: ID!, $name: String!, $dataType: ProjectV2CustomFieldType!) {
+          createProjectV2Field(input: {
+            projectId: $projectId
+            dataType: $dataType
+            name: $name
+          }) {
+            projectV2Field {
+              ... on ProjectV2Field {
+                id
+                name
+                dataType
+              }
+            }
+          }
+        }
+      `;
+
+      const result = await gh.graphql<{
+        createProjectV2Field: { projectV2Field: ProjectField };
+      }>(mutation, {
+        projectId: project.id,
+        name: input.name,
+        dataType: input.dataType,
+      });
+
+      return result.createProjectV2Field.projectV2Field;
+    }
+  }
+
+  async deleteField(projectNumber: number, fieldName: string): Promise<DeleteFieldResult> {
+    const project = await this.getProject(projectNumber);
+    const field = project.fields.nodes.find(f => f.name === fieldName);
+
+    if (!field) {
+      throw new Error(`Field "${fieldName}" not found in project`);
+    }
+
+    const mutation = `
+      mutation($fieldId: ID!) {
+        deleteProjectV2Field(input: {
+          fieldId: $fieldId
+        }) {
+          projectV2Field {
+            ... on ProjectV2Field {
+              id
+            }
+            ... on ProjectV2SingleSelectField {
+              id
+            }
+          }
+        }
+      }
+    `;
+
+    await gh.graphql(mutation, { fieldId: field.id });
+
+    return { deletedFieldId: field.id };
+  }
+
+  async updateItemFieldValue(
+    projectNumber: number,
+    itemId: string,
+    fieldName: string,
+    value: FieldValueInput
+  ): Promise<void> {
+    const project = await this.getProject(projectNumber);
+    const field = project.fields.nodes.find(f => f.name === fieldName);
+
+    if (!field) {
+      throw new Error(`Field "${fieldName}" not found in project`);
+    }
+
+    await this.sendFieldValueMutation(project.id, itemId, field.id, value);
+  }
+
+  async setItemFieldByValue(
+    projectNumber: number,
+    itemId: string,
+    fieldName: string,
+    value: string | number
+  ): Promise<void> {
+    const project = await this.getProject(projectNumber);
+    const field = project.fields.nodes.find(f => f.name === fieldName);
+
+    if (!field) {
+      throw new Error(`Field "${fieldName}" not found in project`);
+    }
+
+    let fieldValue: FieldValueInput;
+
+    switch (field.dataType) {
+      case 'TEXT':
+        fieldValue = { text: String(value) };
+        break;
+      case 'NUMBER':
+        fieldValue = { number: Number(value) };
+        break;
+      case 'DATE':
+        fieldValue = { date: String(value) };
+        break;
+      case 'SINGLE_SELECT': {
+        const option = field.options?.find(
+          o => o.name.toLowerCase() === String(value).toLowerCase()
+        );
+        if (!option) {
+          const availableOptions = field.options?.map(o => o.name).join(', ') || 'none';
+          throw new Error(`Option "${value}" not found for field "${fieldName}". Available: ${availableOptions}`);
+        }
+        fieldValue = { singleSelectOptionId: option.id };
+        break;
+      }
+      default:
+        throw new Error(`Unsupported field type: ${field.dataType}`);
+    }
+
+    await this.sendFieldValueMutation(project.id, itemId, field.id, fieldValue);
+  }
+
+  private async sendFieldValueMutation(
+    projectId: string,
+    itemId: string,
+    fieldId: string,
+    value: FieldValueInput
+  ): Promise<void> {
+    // Build mutation with the specific value type inlined (not as ProjectV2FieldValue variable)
+    // gh CLI cannot properly pass nested JSON input types as variables
+    let valueDef: string;
+    let valueVar: string;
+    const variables: Record<string, unknown> = {
+      projectId,
+      itemId,
+      fieldId,
+    };
+
+    if (value.text !== undefined) {
+      valueDef = '$val: String!';
+      valueVar = '{ text: $val }';
+      variables.val = value.text;
+    } else if (value.number !== undefined) {
+      valueDef = '$val: Float!';
+      valueVar = '{ number: $val }';
+      variables.val = value.number;
+    } else if (value.date !== undefined) {
+      valueDef = '$val: Date!';
+      valueVar = '{ date: $val }';
+      variables.val = value.date;
+    } else if (value.singleSelectOptionId !== undefined) {
+      valueDef = '$val: String!';
+      valueVar = '{ singleSelectOptionId: $val }';
+      variables.val = value.singleSelectOptionId;
+    } else {
+      throw new Error('No valid value provided');
+    }
+
+    const mutation = `
+      mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, ${valueDef}) {
+        updateProjectV2ItemFieldValue(input: {
+          projectId: $projectId
+          itemId: $itemId
+          fieldId: $fieldId
+          value: ${valueVar}
+        }) {
+          projectV2Item {
+            id
+          }
+        }
+      }
+    `;
+
+    await gh.graphql(mutation, variables);
+  }
+
+  async getProjectItemsFiltered(
+    number: number,
+    filters?: ItemFilterOptions,
+    sort?: ItemSortOptions
+  ): Promise<ProjectItem[]> {
+    const project = await this.getProject(number);
+    let items = project.items.nodes;
+
+    // Apply filters
+    if (filters) {
+      items = items.filter(item => {
+        const getFieldValue = (fieldName: string): string | number | null => {
+          const fv = item.fieldValues.find(f => f.field.name === fieldName);
+          return fv?.value ?? null;
+        };
+
+        if (filters.status) {
+          const status = getFieldValue('Status');
+          if (status !== filters.status) return false;
+        }
+
+        if (filters.priority) {
+          const priority = getFieldValue('Priority');
+          if (priority !== filters.priority) return false;
+        }
+
+        if (filters.category) {
+          const category = getFieldValue('Category');
+          if (category !== filters.category) return false;
+        }
+
+        if (filters.dueBefore) {
+          const dueDate = getFieldValue('Due Date');
+          if (!dueDate || String(dueDate) > filters.dueBefore) return false;
+        }
+
+        if (filters.dueAfter) {
+          const dueDate = getFieldValue('Due Date');
+          if (!dueDate || String(dueDate) < filters.dueAfter) return false;
+        }
+
+        return true;
+      });
+    }
+
+    // Apply sorting
+    if (sort) {
+      items = [...items].sort((a, b) => {
+        const aValue = a.fieldValues.find(f => f.field.name === sort.field)?.value;
+        const bValue = b.fieldValues.find(f => f.field.name === sort.field)?.value;
+
+        if (aValue === null || aValue === undefined) return 1;
+        if (bValue === null || bValue === undefined) return -1;
+
+        let comparison = 0;
+        if (typeof aValue === 'number' && typeof bValue === 'number') {
+          comparison = aValue - bValue;
+        } else {
+          comparison = String(aValue).localeCompare(String(bValue));
+        }
+
+        return sort.direction === 'desc' ? -comparison : comparison;
+      });
+    }
+
+    return items;
+  }
+
+  async addDraftItem(projectNumber: number, title: string, body?: string): Promise<string> {
+    const project = await this.getProject(projectNumber);
+
+    const mutation = `
+      mutation($projectId: ID!, $title: String!, $body: String) {
+        addProjectV2DraftIssue(input: {
+          projectId: $projectId
+          title: $title
+          body: $body
+        }) {
+          projectItem {
+            id
+          }
+        }
+      }
+    `;
+
+    const result = await gh.graphql<{
+      addProjectV2DraftIssue: { projectItem: { id: string } };
+    }>(mutation, {
+      projectId: project.id,
+      title,
+      body: body || null,
+    });
+
+    return result.addProjectV2DraftIssue.projectItem.id;
+  }
+
+  async getRepositoryId(owner: string, repo: string): Promise<string> {
+    const query = `
+      query($owner: String!, $repo: String!) {
+        repository(owner: $owner, name: $repo) {
+          id
+        }
+      }
+    `;
+
+    const result = await gh.graphql<{
+      repository: { id: string } | null;
+    }>(query, { owner, repo });
+
+    if (!result.repository) {
+      throw new Error(`Repository ${owner}/${repo} not found`);
+    }
+
+    return result.repository.id;
+  }
+
+  async convertDraftToIssue(projectNumber: number, itemId: string, repositoryId: string): Promise<{ issueId: string; issueNumber: number; issueUrl: string }> {
+    const project = await this.getProject(projectNumber);
+
+    const mutation = `
+      mutation($projectId: ID!, $itemId: ID!, $repositoryId: ID!) {
+        convertProjectV2DraftIssueItemToIssue(input: {
+          projectId: $projectId
+          itemId: $itemId
+          repositoryId: $repositoryId
+        }) {
+          item {
+            id
+            content {
+              ... on Issue {
+                id
+                number
+                url
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const result = await gh.graphql<{
+      convertProjectV2DraftIssueItemToIssue: {
+        item: {
+          id: string;
+          content: { id: string; number: number; url: string };
+        };
+      };
+    }>(mutation, {
+      projectId: project.id,
+      itemId,
+      repositoryId,
+    });
+
+    const content = result.convertProjectV2DraftIssueItemToIssue.item.content;
+    return {
+      issueId: content.id,
+      issueNumber: content.number,
+      issueUrl: content.url,
+    };
   }
 }

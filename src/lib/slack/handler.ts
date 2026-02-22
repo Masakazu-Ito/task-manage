@@ -18,6 +18,8 @@ import type {
 import { getItemFieldValue } from '../../types/project.js';
 import type { ProjectItem } from '../../types/project.js';
 
+const graphql = new GraphQLAPI();
+
 function requireRepo(): void {
   const config = getConfig();
   if (!config.defaults.repo) {
@@ -54,7 +56,6 @@ export async function createIssueFromTemplate(
   const projectNumber = config.defaults.project;
 
   if (projectNumber !== null) {
-    const graphql = new GraphQLAPI();
     try {
       const itemId = await graphql.addItemToProject(projectNumber, issue.number);
       result.project = {
@@ -131,8 +132,6 @@ export function formatSlackError(err: unknown): string {
 
 export async function handleListCommand(dueBefore?: string): Promise<SlackListResult> {
   const projectNumber = requireProjectNumber();
-
-  const graphql = new GraphQLAPI();
   const filters = dueBefore ? { dueBefore } : undefined;
   const sort = { field: 'Due Date', direction: 'asc' as const };
   const items = await graphql.getProjectItemsFiltered(projectNumber, filters, sort);
@@ -177,8 +176,6 @@ export function formatListResponse(result: SlackListResult): string {
 
 export async function handleStatusCommand(issueNumber: number, status: string): Promise<SlackStatusResult> {
   const projectNumber = requireProjectNumber();
-
-  const graphql = new GraphQLAPI();
   const item = await graphql.findItemByIssueNumber(projectNumber, issueNumber);
 
   if (!item) {
@@ -229,7 +226,6 @@ export async function handleCloseCommand(issueNumber: number, comment?: string):
   // プロジェクトがあればステータスを Done に変更（失敗しても続行）
   if (projectNumber) {
     try {
-      const graphql = new GraphQLAPI();
       const item = await graphql.findItemByIssueNumber(projectNumber, issueNumber);
       if (item) {
         await graphql.moveItem(projectNumber, item.id, 'Done');
@@ -264,8 +260,6 @@ export function formatCloseResponse(result: SlackCloseResult): string {
 
 export async function handleDueDateCommand(issueNumber: number, dueDate: string): Promise<SlackDueDateResult> {
   const projectNumber = requireProjectNumber();
-
-  const graphql = new GraphQLAPI();
   const item = await graphql.findItemByIssueNumber(projectNumber, issueNumber);
 
   if (!item) {
@@ -381,7 +375,6 @@ export function collectDashboardData(items: ProjectItem[], today: string): Slack
 export async function handleDashboardCommand(): Promise<SlackDashboardResult> {
   const projectNumber = requireProjectNumber();
 
-  const graphql = new GraphQLAPI();
   const project = await graphql.getProject(projectNumber);
   const allItems = project.items.nodes;
 
