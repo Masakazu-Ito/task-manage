@@ -310,7 +310,7 @@ describe('formatListResponse', () => {
       ],
     };
     const output = formatListResponse(result);
-    expect(output).toContain('📋 タスク一覧 - 2件');
+    expect(output).toContain('タスク一覧 - 2件');
     expect(output).toContain('#10');
     expect(output).toContain('Task A');
     expect(output).toContain('[Todo]');

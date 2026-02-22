@@ -133,17 +133,22 @@ export async function handleListCommand(dueBefore?: string): Promise<SlackListRe
   const items = await graphql.getProjectItemsFiltered(projectNumber, filters, sort);
 
   return {
-    items: items.map(item => {
-      const status = getItemFieldValue(item, 'Status');
-      const dueDate = getItemFieldValue(item, 'Due Date');
-      return {
-        issueNumber: item.content?.number,
-        title: item.content?.title || '(untitled)',
-        status: String(status || 'No Status'),
-        dueDate: dueDate ? String(dueDate) : null,
-        url: item.content?.url,
-      };
-    }),
+    items: items
+      .filter(item => {
+        const status = getItemFieldValue(item, 'Status');
+        return String(status || 'No Status') !== 'Done';
+      })
+      .map(item => {
+        const status = getItemFieldValue(item, 'Status');
+        const dueDate = getItemFieldValue(item, 'Due Date');
+        return {
+          issueNumber: item.content?.number,
+          title: item.content?.title || '(untitled)',
+          status: String(status || 'No Status'),
+          dueDate: dueDate ? String(dueDate) : null,
+          url: item.content?.url,
+        };
+      }),
     dueBefore,
   };
 }
@@ -151,16 +156,16 @@ export async function handleListCommand(dueBefore?: string): Promise<SlackListRe
 export function formatListResponse(result: SlackListResult): string {
   if (result.items.length === 0) {
     const suffix = result.dueBefore ? ` (期限: ${result.dueBefore} まで)` : '';
-    return `📋 タスクが見つかりませんでした${suffix}`;
+    return `タスクが見つかりませんでした${suffix}`;
   }
 
   const header = result.dueBefore
-    ? `📋 タスク一覧 (期限: ${result.dueBefore} まで) - ${result.items.length}件`
-    : `📋 タスク一覧 - ${result.items.length}件`;
+    ? `タスク一覧 (期限: ${result.dueBefore} まで) - ${result.items.length}件`
+    : `タスク一覧 - ${result.items.length}件`;
 
   const lines = result.items.map(item => {
     const num = item.issueNumber ? `#${item.issueNumber}` : '(draft)';
-    const due = item.dueDate ? `  📅${item.dueDate}` : '';
+    const due = item.dueDate ? `  ${item.dueDate}` : '';
     const title = item.url ? `<${item.url}|${item.title}>` : item.title;
     return `  ${num} ${title}  [${item.status}]${due}`;
   });
