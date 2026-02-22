@@ -14,6 +14,7 @@ import type {
   SlackSearchResult,
   SlackDashboardResult,
 } from '../../types/slack.js';
+import { getItemFieldValue } from '../../types/project.js';
 import type { ProjectItem } from '../../types/project.js';
 
 export async function createIssueFromTemplate(
@@ -131,13 +132,13 @@ export async function handleListCommand(dueBefore?: string): Promise<SlackListRe
 
   return {
     items: items.map(item => {
-      const statusField = item.fieldValues.find(fv => fv.field.name === 'Status');
-      const dueDateField = item.fieldValues.find(fv => fv.field.name === 'Due Date');
+      const status = getItemFieldValue(item, 'Status');
+      const dueDate = getItemFieldValue(item, 'Due Date');
       return {
         issueNumber: item.content?.number,
         title: item.content?.title || '(untitled)',
-        status: String(statusField?.value || 'No Status'),
-        dueDate: dueDateField?.value ? String(dueDateField.value) : null,
+        status: String(status || 'No Status'),
+        dueDate: dueDate ? String(dueDate) : null,
         url: item.content?.url,
       };
     }),
@@ -353,10 +354,10 @@ export function collectDashboardData(items: ProjectItem[], today: string): Slack
   const statusDistribution: Record<string, number> = {};
 
   for (const item of items) {
-    const statusFv = item.fieldValues.find(fv => fv.field.name === 'Status');
-    const dueDateFv = item.fieldValues.find(fv => fv.field.name === 'Due Date');
-    const status = statusFv?.value ? String(statusFv.value) : 'No Status';
-    const dueDate = dueDateFv?.value ? String(dueDateFv.value) : null;
+    const statusVal = getItemFieldValue(item, 'Status');
+    const dueDateVal = getItemFieldValue(item, 'Due Date');
+    const status = statusVal ? String(statusVal) : 'No Status';
+    const dueDate = dueDateVal ? String(dueDateVal) : null;
 
     // ステータス分布
     statusDistribution[status] = (statusDistribution[status] || 0) + 1;

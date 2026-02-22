@@ -2,6 +2,7 @@ import type { App } from '@slack/bolt';
 import { GraphQLAPI } from '../github/graphql.js';
 import { getConfig } from '../config.js';
 import { collectDashboardData } from './handler.js';
+import { getItemFieldValue } from '../../types/project.js';
 import type { ProjectItem } from '../../types/project.js';
 import type { SlackDashboardResult } from '../../types/slack.js';
 
@@ -56,10 +57,6 @@ export function getNextNotifyTime(): Date {
   return new Date(jstTomorrow.getTime() - JST_OFFSET * 60 * 1000);
 }
 
-function getFieldValue(item: ProjectItem, fieldName: string): string | number | null {
-  const fv = item.fieldValues.find(f => f.field.name === fieldName);
-  return fv?.value ?? null;
-}
 
 export function formatNotification(
   todayItems: ProjectItem[],
@@ -78,7 +75,7 @@ export function formatNotification(
     for (const item of todayItems) {
       const num = item.content?.number ? `#${item.content.number}` : '(draft)';
       const title = item.content?.title || '(untitled)';
-      const status = getFieldValue(item, 'Status') || 'No Status';
+      const status = getItemFieldValue(item, 'Status') || 'No Status';
       lines.push(`  ${num} ${title}  [${status}]`);
     }
   }
@@ -89,7 +86,7 @@ export function formatNotification(
     for (const item of overdueItems) {
       const num = item.content?.number ? `#${item.content.number}` : '(draft)';
       const title = item.content?.title || '(untitled)';
-      const dueDate = getFieldValue(item, 'Due Date');
+      const dueDate = getItemFieldValue(item, 'Due Date');
       lines.push(`  ${num} ${title}  [期限: ${dueDate}]`);
     }
   }
@@ -160,24 +157,24 @@ export class TaskScheduler {
       // メモリ上でフィルタ
       const todayItems = allItems
         .filter(item => {
-          const dueDate = getFieldValue(item, 'Due Date');
+          const dueDate = getItemFieldValue(item, 'Due Date');
           return dueDate && String(dueDate) >= today && String(dueDate) < tomorrow;
         })
         .sort((a, b) => {
-          const aDate = String(getFieldValue(a, 'Due Date') || '');
-          const bDate = String(getFieldValue(b, 'Due Date') || '');
+          const aDate = String(getItemFieldValue(a, 'Due Date') || '');
+          const bDate = String(getItemFieldValue(b, 'Due Date') || '');
           return aDate.localeCompare(bDate);
         });
 
       const overdueItems = allItems
         .filter(item => {
-          const dueDate = getFieldValue(item, 'Due Date');
-          const status = getFieldValue(item, 'Status');
+          const dueDate = getItemFieldValue(item, 'Due Date');
+          const status = getItemFieldValue(item, 'Status');
           return dueDate && String(dueDate) < today && status !== 'Done';
         })
         .sort((a, b) => {
-          const aDate = String(getFieldValue(a, 'Due Date') || '');
-          const bDate = String(getFieldValue(b, 'Due Date') || '');
+          const aDate = String(getItemFieldValue(a, 'Due Date') || '');
+          const bDate = String(getItemFieldValue(b, 'Due Date') || '');
           return aDate.localeCompare(bDate);
         });
 
