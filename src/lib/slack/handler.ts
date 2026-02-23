@@ -138,6 +138,14 @@ export async function handleListCommand(dueBefore?: string): Promise<SlackListRe
         const status = getItemFieldValue(item, 'Status');
         return String(status || 'No Status') !== 'Done';
       })
+      .sort((a, b) => {
+        const aDate = getItemFieldValue(a, 'Due Date');
+        const bDate = getItemFieldValue(b, 'Due Date');
+        if (!aDate && !bDate) return 0;
+        if (!aDate) return 1;
+        if (!bDate) return -1;
+        return String(aDate).localeCompare(String(bDate));
+      })
       .map(item => {
         const status = getItemFieldValue(item, 'Status');
         const dueDate = getItemFieldValue(item, 'Due Date');
