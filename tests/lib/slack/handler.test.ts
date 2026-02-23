@@ -798,10 +798,10 @@ describe('formatDashboardResponse', () => {
     expect(output).toContain('📊 *プロジェクト ダッシュボード*');
     expect(output).toContain('1/3 (33%)');
     expect(output).toContain('███░░░░░░░');
-    expect(output).toContain('⚠️ *期限超過*: 1件');
-    expect(output).toContain('✅ Done: 5件');
-    expect(output).toContain('🔵 In Progress: 4件');
-    expect(output).toContain('⬜ Todo: 3件');
+    expect(output).toContain('*期限超過*: 1件');
+    expect(output).toContain('Done: 5件');
+    expect(output).toContain('In Progress: 4件');
+    expect(output).toContain('Todo: 3件');
     expect(output).toContain('全 12 タスク中 5 件完了');
   });
 

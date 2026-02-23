@@ -189,7 +189,7 @@ export async function handleStatusCommand(issueNumber: number, status: string): 
 }
 
 export function formatStatusResponse(result: SlackStatusResult): string {
-  return `✅ Issue #${result.issueNumber} のステータスを *${result.newStatus}* に変更しました`;
+  return `Issue #${result.issueNumber} のステータスを *${result.newStatus}* に変更しました`;
 }
 
 // --- メモ追記コマンド ---
@@ -249,7 +249,7 @@ export async function handleCloseCommand(issueNumber: number, comment?: string):
 }
 
 export function formatCloseResponse(result: SlackCloseResult): string {
-  const lines = [`✅ Issue #${result.issueNumber} をクローズしました`];
+  const lines = [`Issue #${result.issueNumber} をクローズしました`];
   lines.push(`<${result.html_url}|${result.title}>`);
   if (result.statusChanged) {
     lines.push('ステータスを *Done* に変更しました');
@@ -284,7 +284,7 @@ export async function handleDueDateCommand(issueNumber: number, dueDate: string)
 }
 
 export function formatDueDateResponse(result: SlackDueDateResult): string {
-  return `📅 Issue #${result.issueNumber} の期日を *${result.dueDate}* に変更しました`;
+  return `Issue #${result.issueNumber} の期日を *${result.dueDate}* に変更しました`;
 }
 
 // --- 検索コマンド ---
@@ -315,10 +315,10 @@ export async function handleSearchCommand(query: string): Promise<SlackSearchRes
 
 export function formatSearchResponse(result: SlackSearchResult): string {
   if (result.items.length === 0) {
-    return `🔍 「${result.query}」に一致するIssueが見つかりませんでした`;
+    return `「${result.query}」に一致するIssueが見つかりませんでした`;
   }
 
-  const header = `🔍 「${result.query}」の検索結果 - ${result.items.length}件`;
+  const header = `「${result.query}」の検索結果 - ${result.items.length}件`;
   const lines = result.items.map(item =>
     `  #${item.number} <${item.html_url}|${item.title}>`,
   );
@@ -400,25 +400,18 @@ export function formatDashboardResponse(result: SlackDashboardResult): string {
 
   // 期限超過
   if (result.overdueCount > 0) {
-    lines.push(`⚠️ *期限超過*: ${result.overdueCount}件`);
+    lines.push(`*期限超過*: ${result.overdueCount}件`);
   }
 
   // ステータス分布
   lines.push('');
   lines.push('*ステータス分布*');
 
-  const statusEmoji: Record<string, string> = {
-    'Done': '✅',
-    'In Progress': '🔵',
-    'Todo': '⬜',
-  };
-
   const entries = Object.entries(result.statusDistribution)
     .sort(([, a], [, b]) => b - a);
 
   for (const [status, count] of entries) {
-    const emoji = statusEmoji[status] || '▫️';
-    lines.push(`  ${emoji} ${status}: ${count}件`);
+    lines.push(`  ${status}: ${count}件`);
   }
 
   // 全体サマリー
@@ -466,5 +459,5 @@ export function formatHelpResponse(): string {
 
 export function formatCommandError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
-  return `❌ コマンド実行に失敗しました\n\`\`\`${message}\`\`\``;
+  return `コマンド実行に失敗しました\n\`\`\`${message}\`\`\``;
 }
