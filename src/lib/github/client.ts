@@ -1,11 +1,20 @@
-import { execSync, exec } from 'node:child_process';
+import { execSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { parseGhError, GhpError } from '../errors.js';
+import { withRetry, RetryOptions } from '../retry.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface ExecResult {
   stdout: string;
   stderr: string;
+}
+
+export interface ApiOptions {
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  body?: Record<string, unknown>;
+  headers?: Record<string, string>;
+  retry?: boolean | RetryOptions;
 }
 
 export class GitHubClient {
@@ -19,16 +28,16 @@ export class GitHubClient {
   }
 
   async exec(args: string[]): Promise<ExecResult> {
-    const command = ['gh', ...args].join(' ');
     try {
-      const result = await execAsync(command);
+      const result = await execFileAsync('gh', args);
       return {
         stdout: result.stdout,
         stderr: result.stderr,
       };
     } catch (err: unknown) {
       const error = err as { stdout?: string; stderr?: string; message?: string };
-      throw new Error(error.stderr || error.message || 'gh command failed');
+      const stderr = error.stderr || error.message || 'gh command failed';
+      throw parseGhError(stderr);
     }
   }
 
@@ -38,68 +47,87 @@ export class GitHubClient {
       return execSync(command, { encoding: 'utf-8' });
     } catch (err: unknown) {
       const error = err as { stderr?: Buffer; message?: string };
-      throw new Error(error.stderr?.toString() || error.message || 'gh command failed');
+      const stderr = error.stderr?.toString() || error.message || 'gh command failed';
+      throw parseGhError(stderr);
     }
   }
 
-  async api<T>(endpoint: string, options: {
-    method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
-    body?: Record<string, unknown>;
-    headers?: Record<string, string>;
-  } = {}): Promise<T> {
-    const args = ['api', endpoint];
+  async api<T>(endpoint: string, options: ApiOptions = {}): Promise<T> {
+    const { retry = true, ...restOptions } = options;
 
-    if (options.method) {
-      args.push('-X', options.method);
-    }
+    const doRequest = async (): Promise<T> => {
+      const args = ['api', endpoint];
 
-    if (options.body) {
-      args.push('-f', ...Object.entries(options.body).flatMap(([k, v]) => {
-        if (typeof v === 'string') {
-          return [`${k}=${v}`];
-        }
-        return [`${k}=${JSON.stringify(v)}`];
-      }));
-    }
-
-    if (options.headers) {
-      for (const [key, value] of Object.entries(options.headers)) {
-        args.push('-H', `${key}: ${value}`);
+      if (restOptions.method) {
+        args.push('-X', restOptions.method);
       }
+
+      if (restOptions.body) {
+        args.push('-f', ...Object.entries(restOptions.body).flatMap(([k, v]) => {
+          if (typeof v === 'string') {
+            return [`${k}=${v}`];
+          }
+          return [`${k}=${JSON.stringify(v)}`];
+        }));
+      }
+
+      if (restOptions.headers) {
+        for (const [key, value] of Object.entries(restOptions.headers)) {
+          args.push('-H', `${key}: ${value}`);
+        }
+      }
+
+      const result = await this.exec(args);
+      if (!result.stdout.trim()) {
+        return undefined as unknown as T;
+      }
+      return JSON.parse(result.stdout) as T;
+    };
+
+    if (retry) {
+      const retryOptions: RetryOptions = typeof retry === 'object' ? retry : {};
+      return withRetry(doRequest, retryOptions);
     }
 
-    const result = await this.exec(args);
-    if (!result.stdout.trim()) {
-      return {} as T;
-    }
-    return JSON.parse(result.stdout) as T;
+    return doRequest();
   }
 
-  async graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-    const args = ['api', 'graphql'];
+  async graphql<T>(query: string, variables?: Record<string, unknown>, options: { retry?: boolean | RetryOptions } = {}): Promise<T> {
+    const { retry = true } = options;
 
-    args.push('-f', `query=${query}`);
+    const doRequest = async (): Promise<T> => {
+      const args = ['api', 'graphql'];
 
-    if (variables) {
-      for (const [key, value] of Object.entries(variables)) {
-        if (typeof value === 'string') {
-          args.push('-f', `${key}=${value}`);
-        } else if (typeof value === 'number' || typeof value === 'boolean') {
-          args.push('-F', `${key}=${value}`);
-        } else {
-          args.push('-f', `${key}=${JSON.stringify(value)}`);
+      args.push('-f', `query=${query}`);
+
+      if (variables) {
+        for (const [key, value] of Object.entries(variables)) {
+          if (typeof value === 'string') {
+            args.push('-f', `${key}=${value}`);
+          } else if (typeof value === 'number' || typeof value === 'boolean') {
+            args.push('-F', `${key}=${value}`);
+          } else {
+            args.push('-F', `${key}=${JSON.stringify(value)}`);
+          }
         }
       }
+
+      const result = await this.exec(args);
+      const response = JSON.parse(result.stdout);
+
+      if (response.errors && response.errors.length > 0) {
+        throw new GhpError(response.errors[0].message);
+      }
+
+      return response.data as T;
+    };
+
+    if (retry) {
+      const retryOptions: RetryOptions = typeof retry === 'object' ? retry : {};
+      return withRetry(doRequest, retryOptions);
     }
 
-    const result = await this.exec(args);
-    const response = JSON.parse(result.stdout);
-
-    if (response.errors && response.errors.length > 0) {
-      throw new Error(response.errors[0].message);
-    }
-
-    return response.data as T;
+    return doRequest();
   }
 
   getCurrentRepo(): { owner: string; repo: string } | null {

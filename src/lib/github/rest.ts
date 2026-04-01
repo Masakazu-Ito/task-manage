@@ -1,9 +1,10 @@
 import { gh } from './client.js';
 import type { Issue, CreateIssueParams, UpdateIssueParams } from '../../types/issue.js';
+import { getDefaultRepo } from '../config.js';
 
 export class RestAPI {
-  private owner: string;
-  private repo: string;
+  public readonly owner: string;
+  public readonly repo: string;
 
   constructor(owner?: string, repo?: string) {
     if (owner && repo) {
@@ -20,8 +21,11 @@ export class RestAPI {
   }
 
   static fromRepoString(repoStr?: string): RestAPI {
-    if (repoStr) {
-      const [owner, repo] = repoStr.split('/');
+    // Priority: CLI option > config default > git detection
+    const effectiveRepo = repoStr || getDefaultRepo();
+
+    if (effectiveRepo) {
+      const [owner, repo] = effectiveRepo.split('/');
       if (!owner || !repo) {
         throw new Error('Invalid repository format. Use owner/repo format.');
       }
@@ -50,7 +54,7 @@ export class RestAPI {
 
     const result = await gh.api<Issue[]>(endpoint);
     // Filter out pull requests (they also appear in issues endpoint)
-    return result.filter(issue => !('pull_request' in issue));
+    return (result ?? []).filter(issue => !('pull_request' in issue));
   }
 
   async getIssue(number: number): Promise<Issue> {
@@ -62,9 +66,7 @@ export class RestAPI {
 
     args.push('--title', params.title);
 
-    if (params.body) {
-      args.push('--body', params.body);
-    }
+    args.push('--body', params.body || ' ');
 
     if (params.labels && params.labels.length > 0) {
       for (const label of params.labels) {
